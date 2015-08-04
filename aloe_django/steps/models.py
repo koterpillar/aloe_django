@@ -30,10 +30,14 @@ from django.core.management import call_command
 from django.core.management.color import no_style
 from django.db import connection
 from django.db.models.loading import get_models
-from django.utils.functional import curry
 from functools import partial, wraps
 
 from aloe import step
+
+__all__ = ('writes_models', 'write_models',
+           'tests_existence', 'test_existance',
+           'reset_sequence', 'hashes_data',
+           )
 
 
 STEP_PREFIX = r'(?:Given|And|Then|When) '
@@ -54,33 +58,43 @@ MODELS = dict(_models_generator())
 _WRITE_MODEL = {}
 
 
-def creates_models(model):
-    """
-    Register a model-specific creation function. Wrapper around writes_models
-    that removes the field parameter (always a create operation).
-    """
-
-    def decorated(func):
-
-        @wraps(func)
-        @writes_models(model)
-        def wrapped(data, field):
-            if field:
-                raise NotImplementedError(
-                    "Must use the writes_models decorator to update models")
-            return func(data)
-
-    return decorated
-
-
 def writes_models(model):
     """
     Register a model-specific create and update function.
+
+    This can then be accessed via the steps.
+
+        And I have foos in the database:
+            | name | bar  |
+            | Baz  | Quux |
+
+        And I update existing foos by pk in the database:
+            | pk | name |
+            | 1  | Bar  |
+
+    A method for a specific model can define a function write_badgers(data,
+    field), which creates and updates the Badger model and decorating it with
+    the writes_models(model_class) decorator.
+
+    @writes_models(Profile)
+    def write_profile(data, field):
+        '''Creates a Profile model'''
+
+        for hash_ in data:
+            if field:
+                profile = Profile.objects.get(**{field: hash_[field]})
+                else:
+                    profile = Profile()
+
+                ...
 
     The function must accept a list of data hashes and a field name. If field
     is not None, it is the field that must be used to get the existing objects
     out of the database to update them; otherwise, new objects must be created
     for each data hash.
+
+    If you only want to modify the hash or do specific changes, you can also
+    modify the hash and then pass it on to write_models().
     """
 
     def decorated(func):
@@ -93,35 +107,36 @@ def writes_models(model):
     return decorated
 
 
-_MODEL_EXISTS = {}
-
-
-def checks_existence(model):
-    """
-    Register a model-specific existence check function.
-
-    This is deprecated, use tests_existence which checks individual hashes and
-    can reuse diagnostic information from the generic existence check.
-    """
-
-    warnings.warn("deprecated - use tests_existence", DeprecationWarning)
-
-    def decorated(func):
-        """
-        Decorator for the existence function.
-        """
-        _MODEL_EXISTS[model] = func
-        return func
-
-    return decorated
-
-
 _TEST_MODEL = {}
 
 
 def tests_existence(model):
     """
     Register a model-specific existence test.
+
+    This can then be accessed via the steps.
+
+        Then foos should be present in the database:
+            | name   | bar |
+            | badger | baz |
+
+        Then foos should not be present in the database:
+            | name   | bar |
+            | badger | baz |
+
+    A method for a specific model can define a function test_badgers(queryset,
+    data) and decorating it with the tests_existence(model_class)
+    decorator.
+
+    @tests_existence(Profile)
+    def test_profile(queryset, data):
+        '''Tests a Profile model'''
+
+        for hash_ in data:
+                ...
+
+    If you only want to modify the hash or do specific changes, you can also
+    modify the hash and then pass it on to test_existence().
     """
 
     def decorated(func):
@@ -136,12 +151,13 @@ def tests_existence(model):
 
 def hash_data(hash_):
     """
-    Convert strings from a step table to appropriate types.
+    Convert strings from a step table row to appropriate types.
     """
     res = {}
     for key, value in hash_.items():
         if isinstance(value, bytes):
             value = value.decode()
+
         if isinstance(value, str):
             if value == "true":
                 value = True
@@ -153,7 +169,9 @@ def hash_data(hash_):
                 value = int(value)
             elif re.match(r'^\d{4}-\d{2}-\d{2}$', value):
                 value = datetime.strptime(value, "%Y-%m-%d")
+
         res[key] = value
+
     return res
 
 
@@ -165,10 +183,7 @@ def hashes_data(data):
     If the object is already a list of hashes, it is returned unchanged.
     """
 
-    if hasattr(data, 'hashes'):
-        return list(map(hash_data, data.hashes))
-    else:
-        return data
+    return [hash_data(row) for row in data]
 
 
 def get_model(model):
@@ -192,46 +207,6 @@ def reset_sequence(model):
     sql = connection.ops.sequence_reset_sql(no_style(), [model])
     for cmd in sql:
         connection.cursor().execute(cmd)
-
-
-def create_models(model, data):
-    """
-    Create models for each data hash. Wrapper around write_models.
-    """
-    return write_models(model, data, None)
-
-
-def write_models(model, data, field=None):
-    """
-    Create or update models for each data hash. If field is present, it is the
-    field that is used to get the existing models out of the database to update
-    them; otherwise, new models are created.
-    """
-    data = hashes_data(data)
-
-    written = []
-
-    for hash_ in data:
-        if field:
-            if field not in hash_:
-                raise KeyError(("The \"%s\" field is required for all update "
-                                "operations") % field)
-
-            model_kwargs = {field: hash_[field]}
-            model_obj = model.objects.get(**model_kwargs)
-
-            for to_set, val in hash_.items():
-                setattr(model_obj, to_set, val)
-
-            model_obj.save()
-
-        else:
-            model_obj = model.objects.create(**hash_)
-
-        written.append(model_obj)
-
-    reset_sequence(model)
-    return written
 
 
 def _dump_model(model, attrs=None):
@@ -261,16 +236,13 @@ def _dump_model(model, attrs=None):
     ))
 
 
-def test_existence(model_or_queryset, data):
+def test_existence(queryset, data):
     """
     Test existence of a given hash in a queryset (or among all model instances
     if a model is given).
-    """
 
-    try:
-        queryset = model_or_queryset.objects
-    except AttributeError:
-        queryset = model_or_queryset
+    Called by tests_existence().
+    """
 
     fields = {}
     extra_attrs = {}
@@ -292,25 +264,31 @@ def test_existence(model_or_queryset, data):
     return False
 
 
-def models_exist(model, data, queryset=None,
-                 existence_check=None,
-                 should_exist=True):
+def _model_exists_step(step, model, should_exist):
     """
-    Check whether the models defined by @data exist in the @queryset.
+    Then foos should be present in the database:
+        | name   | bar |
+        | badger | baz |
+
+    Then foos should not be present in the database:
+        | name   | bar |
+        | badger | baz |
     """
 
-    data = hashes_data(data)
+    model = get_model(model)
+    data = hashes_data(step.hashes)
 
-    if not queryset:
-        queryset = model.objects
+    queryset = model.objects
+
+    try:
+        existence_check = _TEST_MODEL[model]
+    except KeyError:
+        existence_check = test_existence
 
     failed = 0
     try:
         for hash_ in data:
-            if existence_check:
-                match = existence_check(hash_)
-            else:
-                match = test_existence(queryset, hash_)
+            match = existence_check(queryset, hash_)
 
             if should_exist:
                 assert match, \
@@ -337,7 +315,49 @@ def models_exist(model, data, queryset=None,
             raise AssertionError("%i rows found" % failed)
 
 
-def write_models_generic(data, model, field=None):
+for txt, exists in (
+    (r'(?:an? )?([A-Z][a-z0-9_ ]*) should be present in the database',
+     True),
+    (r'(?:an? )?([A-Z][a-z0-9_ ]*) should not be present in the database',
+     False),
+):
+    step(STEP_PREFIX + txt)(partial(_model_exists_step, should_exist=exists))
+
+
+def write_models(model, data, field=None):
+    """
+    Create or update models for each data hash. If field is present, it is the
+    field that is used to get the existing models out of the database to update
+    them; otherwise, new models are created.
+
+    Called by writes_models().
+    """
+    written = []
+
+    for hash_ in data:
+        if field:
+            if field not in hash_:
+                raise KeyError(("The \"%s\" field is required for all update "
+                                "operations") % field)
+
+            model_kwargs = {field: hash_[field]}
+            model_obj = model.objects.get(**model_kwargs)
+
+            for to_set, val in hash_.items():
+                setattr(model_obj, to_set, val)
+
+            model_obj.save()
+
+        else:
+            model_obj = model.objects.create(**hash_)
+
+        written.append(model_obj)
+
+    reset_sequence(model)
+    return written
+
+
+def _write_models_step(step, model, field=None):
     """
     And I have foos in the database:
         | name | bar  |
@@ -347,32 +367,17 @@ def write_models_generic(data, model, field=None):
         | pk | name |
         | 1  | Bar  |
 
-    The generic method can be overridden for a specific model by defining a
-    function write_badgers(data, field), which creates and updates
-    the Badger model and decorating it with the writes_models(model_class)
-    decorator.
-
-    @writes_models(Profile)
-    def write_profile(data, field):
-        '''Creates a Profile model'''
-
-        for hash_ in data:
-            if field:
-                profile = Profile.objects.get(**{field: hash_[field]})
-                else:
-                    profile = Profile()
-
-                ...
+    See writes_models().
     """
 
-    data = hashes_data(data)
-
     model = get_model(model)
+    data = hashes_data(step.hashes)
 
     try:
         func = _WRITE_MODEL[model]
     except KeyError:
-        func = curry(write_models, model)
+        func = partial(write_models, model)
+
     func(data, field)
 
 
@@ -381,33 +386,40 @@ for txt in (
     (r'I update(?: an?)? existing ([a-z][a-z0-9_ ]*) by ([a-z][a-z0-9_]*) '
      'in the database:'),
 ):
-    step(txt)(write_models_generic)
+    step(txt)(_write_models_step)
 
 
 @step(STEP_PREFIX + r'([A-Z][a-z0-9_ ]*) with ([a-z]+) "([^"]*)"' +
       r' has(?: an?)? ([A-Z][a-z0-9_ ]*) in the database:')
-def create_models_for_relation(step, rel_model_name,
-                               rel_key, rel_value, model):
+def _create_models_for_relation_step(step, rel_model_name,
+                                     rel_key, rel_value, model):
     """
     And project with name "Ball Project" has goals in the database:
     | description                             |
     | To have fun playing with balls of twine |
     """
 
+    model = get_model(model)
     lookup = {rel_key: rel_value}
     rel_model = get_model(rel_model_name).objects.get(**lookup)
 
-    data = hashes_data(step)
+    data = hashes_data(step.hashes)
 
     for hash_ in data:
         hash_['%s' % rel_model_name] = rel_model
 
-    write_models_generic(data, model)
+    try:
+        func = _WRITE_MODEL[model]
+    except KeyError:
+        func = partial(write_models, model)
+
+    func(data)
 
 
 @step(STEP_PREFIX + r'([A-Z][a-z0-9_ ]*) with ([a-z]+) "([^"]*)"' +
       r' is linked to ([A-Z][a-z0-9_ ]*) in the database:')
-def create_m2m_links(step, rel_model_name, rel_key, rel_value, relation_name):
+def _create_m2m_links_step(step, rel_model_name,
+                           rel_key, rel_value, relation_name):
     """
     And article with name "Guidelines" is linked to tags in the database:
     | name   |
@@ -438,55 +450,8 @@ def create_m2m_links(step, rel_model_name, rel_key, rel_value, relation_name):
         relation.add(m2m_model.objects.get(**hash_))
 
 
-@step(STEP_PREFIX + r'(?:an? )?([A-Z][a-z0-9_ ]*) should be present ' +
-      r'in the database')
-def models_exist_generic(step, model):
-    """
-    And objectives should be present in the database:
-    | description      |
-    | Make a mess      |
-    """
-
-    return models_existence_generic(step, model, True)
-
-
-@step(STEP_PREFIX + r'(?:an? )?([A-Z][a-z0-9_ ]*) should not be present ' +
-      r'in the database')
-def models_exist_generic(step, model):
-    """
-    And objectives should not be present in the database:
-    | description      |
-    | Make a mess      |
-    """
-
-    return models_existence_generic(step, model, False)
-
-
-def models_existence_generic(step, model, should_exist):
-    """
-    Assert the models are present or absent in the database.
-    """
-
-    model = get_model(model)
-
-    try:
-        func = _MODEL_EXISTS[model]
-    except KeyError:
-        func = curry(models_exist, model)
-
-        try:
-            existence_check = _TEST_MODEL[model]
-            func = partial(func, existence_check=existence_check)
-        except KeyError:
-            pass
-
-        func = partial(func, should_exist=should_exist)
-
-    func(step)
-
-
 @step(r'There should be (\d+) ([a-z][a-z0-9_ ]*) in the database')
-def model_count(step, count, model):
+def _model_count_step(step, count, model):
     """
     Then there should be 0 goals in the database
     """

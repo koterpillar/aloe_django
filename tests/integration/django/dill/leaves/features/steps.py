@@ -27,8 +27,6 @@ from leaves.models import (
 
 from aloe import after, step
 from aloe_django.steps.models import (
-    create_models,
-    creates_models,
     hashes_data,
     test_existence,
     tests_existence,
@@ -45,16 +43,17 @@ max_rego = 0
 def write_with_rego(data, field=None):
     for hash_ in data:
         hash_['rego'] = hash_['make'][:3].upper() + "001"
+
     write_models(Harvester, data, field=field)
 
 
 @tests_existence(Harvester)
-def check_with_rego(data):
+def check_with_rego(queryset, data):
     try:
         data['rego'] = data['rego'].upper()
     except KeyError:
         pass
-    return test_existence(Harvester, data)
+    return test_existence(queryset, data)
 
 
 @step(r'The database dump is as follows')
@@ -78,8 +77,8 @@ def count_harvesters(step):
     print("Harvester count: %d" % Harvester.objects.count())
 
 
-@creates_models(Panda)
-def create_pandas(data):
+@writes_models(Panda)
+def create_pandas(data, field):
     # It is not necessary to call hashes_data, but it might be present in old
     # code using the library. Test that it is a no-op in that case.
     data = hashes_data(data)
@@ -88,4 +87,4 @@ def create_pandas(data):
         if 'name' in hash_:
             hash_['name'] += ' Panda'
 
-    return create_models(Panda, data)
+    return write_models(Panda, data, field)

@@ -52,10 +52,6 @@ def test_model_update():
     status, out = run_scenario('leaves', 'update', 4)
     assert_equals(status, 0, out)
 
-    status, out = run_scenario('leaves', 'update', 5)
-    assert_not_equals(status, 0, out)
-    assert_in("Must use the writes_models decorator to update models", out)
-
 
 @in_directory(__file__, 'django', 'dill')
 def test_model_existence_check():
