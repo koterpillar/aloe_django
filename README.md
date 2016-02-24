@@ -1,6 +1,8 @@
 Aloe-Django
 -------------
 
+[![Build Status](https://travis-ci.org/aloetesting/aloe_django.svg?branch=master)](https://travis-ci.org/aloetesting/aloe_django)
+
 Utilities for using [Aloe](https://github.com/aloetesting/aloe) with
 [Django](http://djangoproject.com):
 
