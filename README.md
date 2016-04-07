@@ -15,7 +15,7 @@ Install:
 
     pip install aloe_django
 
-Read the [documentation](http://aloe.readthedocs.org/projects/aloe_django/en/latest/).
+Read the [documentation](http://aloe_django.readthedocs.org/en/latest/).
 
 Aloe and Aloe-Django are based on [Lettuce](http://lettuce.it/).
 
