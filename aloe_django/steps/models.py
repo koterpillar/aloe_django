@@ -206,7 +206,7 @@ def _dump_model(model, attrs=None):
         )))
 
     print(', '.join(
-        '{0}={1}'.format(field, value)
+        u'{0}={1}'.format(field, value)
         for field, value in fields
     ))
 
