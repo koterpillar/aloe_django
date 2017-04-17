@@ -5,6 +5,8 @@ Aloe-Django
 [![Coverage](https://img.shields.io/coveralls/aloetesting/aloe_django.svg)](https://coveralls.io/github/aloetesting/aloe_django)
 [![PyPI](https://img.shields.io/pypi/v/aloe_django.svg)](https://pypi.python.org/pypi/aloe_django)
 
+[![Build Status](https://travis-ci.org/aloetesting/aloe_django.svg?branch=master)](https://travis-ci.org/aloetesting/aloe_django)
+
 Utilities for using [Aloe](https://github.com/aloetesting/aloe) with
 [Django](http://djangoproject.com):
 
